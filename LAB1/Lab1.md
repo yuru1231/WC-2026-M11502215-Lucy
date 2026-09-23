@@ -438,8 +438,8 @@ sequenceDiagram
     AMF->>gNB: #120 DownlinkNASTransport + Security Mode Command
     Note over UE,AMF: Security-mode signaling continues
 
-    AMF-->>UE: Registration Accept (NAS encrypted; not directly decoded)
-    UE-->>AMF: Registration Complete (NAS encrypted; not directly decoded)
+    AMF-->>UE: Registration Accept (NAS encrypted, not directly decoded)
+    UE-->>AMF: Registration Complete (NAS encrypted, not directly decoded)
 
     Note over UE,AMF: PDU Session establishment
     AMF->>gNB: #180 PDUSessionResourceSetupRequest + encrypted NAS-PDU
