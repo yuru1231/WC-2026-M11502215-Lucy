@@ -1,338 +1,238 @@
-# Lab 1: Analyzing UE–gNB Connectivity in an OAI 5G SA Network
+# Lab 1: Analyzing UE-gNB Connectivity in an OAI 5G SA Network
 
-## 1. Lab Overview
+This report follows the lab checkpoint template and fills in the required answers, packet numbers, protocol roles, and evidence from `oai-5g-combined.pcapng`.
 
-This report analyzes how a UE establishes an RRC connection with an OAI gNB, starts 5G registration through the AMF, establishes user-plane connectivity, and exchanges ICMP traffic through GTP-U.
-
-The main signaling path analyzed in this capture is:
-
-```text
-UE
- → RRC connection establishment
- → NAS Registration Request
- → gNB forwards NAS through NGAP
- → Authentication / Security signaling
- → PDU Session resource setup
- → UE obtains usable IP connectivity
- → GTP-U user-plane ping
-```
-
-> **Verification note:** Some NAS messages after security activation are integrity protected and ciphered in this capture. Therefore, `Registration Accept`, `Registration Complete`, the NAS `PDU Session Establishment Accept`, and the UE address inside that NAS message could not be directly decoded from the available packet view. These limitations are explicitly marked below. The UE IPv4 address is independently verified from the GTP-U inner IPv4 header.
+> Note: Screenshots are collected at the end of each checkpoint section. Existing image references were preserved and the missing opened-capture screenshot was added for Checkpoint 1.
 
 ---
 
-# Checkpoint 1 — Wireshark Setup and NR-RRC Decoding
+# Checkpoint 1: Wireshark Setup and NR-RRC Decoding
 
-## 1.1 OAI-5G profile
+## Answer
 
-The OAI-5G Wireshark profile was installed and selected.
+The `OAI-5G` Wireshark profile was installed and selected before opening the capture. The file `oai-5g-combined.pcapng` was then opened successfully.
 
-## 1.2 Capture opened
+After applying the display filter:
 
-The capture file `oai-5g-combined.pcapng` was opened successfully.
-
-![01](images/01_profile_oai5g.png
-)
-![03](images/03_nr_rrc_filter.png)
-## 1.3 NR-RRC decoding
-
-Display filter:
-
-```text
+```wireshark
 nr-rrc
 ```
-![](images/nrrrc.png)
-Wireshark correctly decodes NR RRC messages such as `RRCSetupRequest`, `RRCSetup`, and `RRCSetupComplete`.
 
-### What is NR RRC?
+Wireshark correctly decoded NR RRC packets, including `RRCSetupRequest`, `RRCSetup`, and `RRCSetupComplete`.
 
-`NR RRC` stands for **New Radio Radio Resource Control**. It is the 5G NR Layer-3 control-plane protocol between the UE and gNB.
+`NR RRC` means **New Radio Radio Resource Control**. It is the 5G NR Layer-3 control-plane protocol used between the UE and the gNB.
 
 ```text
 UE  <---- RRC signaling ---->  gNB
 ```
 
-> The OAI-generated RAN packets appear as `127.0.0.1:9999 → 127.0.0.1:9999`. These are synthetic packets for Wireshark analysis and are not the actual UE and gNB network addresses. Uplink/downlink direction is used to distinguish UE and gNB in the final sequence diagram.
+The OAI-generated RAN packets appear as `127.0.0.1:9999 -> 127.0.0.1:9999`. These are synthetic packets generated for Wireshark analysis and are not the real UE or gNB network addresses. RRC uplink/downlink direction is used to distinguish UE and gNB behavior.
+
+## Screenshots
+
+![OAI-5G profile selected](images/01_profile_oai5g.png)
+
+![Capture opened](images/02_capture_opened.png)
+
+![NR-RRC display filter](images/03_nr_rrc_filter.png)
+
+![NR-RRC packets](images/nrrrc.png)
 
 ---
 
-# Checkpoint 2 — Basic 5G SA Architecture
+# Checkpoint 2: Basic 5G SA Architecture
 
-## 2.1 Network component identification
+## Component Identification
 
-The five main components were identified using NGAP, GTP-U, and ICMP evidence.
-
-| Component | IP Address | Evidence from Capture |
+| Component | IP Address | Evidence from the Capture |
 |---|---|---|
-| UE PDU address | `10.0.0.2` | Packet 490: inner IPv4 source |
-| gNB | `192.168.70.129` | Packet 110: NGAP `InitialUEMessage` source |
+| UE PDU address | `10.0.0.2` | Packet 490: inner IPv4 source in GTP-U user-plane packet |
+| gNB | `192.168.70.129` | Packet 110: NGAP `InitialUEMessage` source; Packet 490 outer IPv4 source |
 | AMF | `192.168.70.132` | Packet 110: NGAP `InitialUEMessage` destination |
-| UPF | `192.168.70.134` | Packet 490: outer IPv4 destination |
-| Data Network endpoint | `192.168.70.135` | Packet 490: inner IPv4 destination / ICMP target |
+| UPF | `192.168.70.134` | Packet 490: outer IPv4 destination in GTP-U packet |
+| Data Network | `192.168.70.135` | Packet 490: inner IPv4 destination / ICMP target |
 
-## 2.2 NGAP analysis
-
-Display filter:
-
-```text
-ngap
-```
-
-Packet 110 contains an NGAP `InitialUEMessage`:
-
-- Source: `192.168.70.129` — gNB
-- Destination: `192.168.70.132` — AMF
-- Transport: SCTP
-- Destination SCTP port: `38412`
-
-This is N2 control-plane signaling from the gNB to the AMF.
-
-## 2.3 GTP-U analysis
-
-Display filter:
-
-```text
-gtp
-```
-![alt text](image.png)
-Packet 490 contains a GTP-U T-PDU carrying an ICMP Echo Request.
-
-**Outer IPv4 header:**
-
-- Source: `192.168.70.129` — gNB
-- Destination: `192.168.70.134` — UPF
-- UDP port: `2152`
-
-**Inner IPv4 header:**
-
-- Source: `10.0.0.2` — UE
-- Destination: `192.168.70.135` — Data Network endpoint
-
-The outer IP header identifies the N3 transport endpoints, while the inner IP header contains the UE's original user packet.
-
-## 2.4 Interface table
+## Interface Table
 
 | Interface | Connected Components | Main Protocol | Purpose |
 |---|---|---|---|
-| N1 | UE ↔ AMF | NAS-5GS | Registration, authentication, and session-management signaling |
-| N2 | gNB ↔ AMF | NGAP | Control-plane signaling between RAN and 5G Core |
-| N3 | gNB ↔ UPF | GTP-U | User-plane packet transport through GTP-U tunnels |
+| N1 | UE <-> AMF, logically through the gNB | NAS-5GS | Registration, authentication, security, and session-management signaling |
+| N2 | gNB <-> AMF | NGAP over SCTP | Control-plane signaling between the RAN and the 5G Core |
+| N3 | gNB <-> UPF | GTP-U over UDP/2152 | Carries UE user-plane IP packets through a GTP-U tunnel |
 
-### N1
+## Explanation
 
-N1 is the **logical** UE–AMF NAS interface. NAS messages do not bypass the gNB; they are carried over RRC on the radio side and forwarded through NGAP on the core side.
+Packet 110 shows NGAP signaling from `192.168.70.129` to `192.168.70.132`, identifying the gNB-to-AMF N2 path.
 
-### N2
+Packet 490 shows a GTP-U T-PDU. Its outer IPv4 header is `192.168.70.129 -> 192.168.70.134`, identifying the gNB-to-UPF N3 tunnel. Its inner IPv4 header is `10.0.0.2 -> 192.168.70.135`, identifying the UE PDU address and the Data Network endpoint.
 
-N2 connects the gNB and AMF. Packet 110 provides direct evidence of NGAP signaling on this interface.
+N1 is logical UE-AMF NAS signaling. The UE does not physically send NAS directly to the AMF; NAS is carried over RRC between UE and gNB, then over NGAP between gNB and AMF.
 
-### N3
+## Screenshots
 
-N3 connects the gNB and UPF. Packet 490 provides direct evidence of a GTP-U user-plane packet on this interface.
-![alt text](image-1.png)
+![GTP-U packet list](images/05_gtp_list.png)
+
+![NGAP architecture evidence](images/04_packet110_ngap.png)
 
 ---
 
-# Checkpoint 3 — RRC Connection Establishment
+# Checkpoint 3: RRC Connection Establishment
 
-## 3.1 Completed RRC message table
+## Completed RRC Message Table
 
-| Message | Direction | Logical Channel / SRB | Main Purpose | Packet |
+| Message | Direction | Logical Channel / SRB | Main Purpose | Packet Number |
 |---|---|---|---|---:|
-| `RRCSetupRequest` | UE → gNB | UL-CCCH / SRB0 | Request RRC connection establishment | 104 |
-| `RRCSetup` | gNB → UE | DL-CCCH / SRB0 | Provide RRC configuration, including SRB1 configuration | 105 |
-| `RRCSetupComplete` | UE → gNB | UL-DCCH / SRB1 | Confirm RRC setup and carry NAS Registration Request | 108 |
+| `RRCSetupRequest` | UE -> gNB | UL-CCCH / SRB0 | Requests RRC connection establishment and provides the initial UE identity and establishment cause | 104 |
+| `RRCSetup` | gNB -> UE | DL-CCCH / SRB0 | Accepts the request and provides radio configuration, including SRB1 configuration | 105 |
+| `RRCSetupComplete` | UE -> gNB | UL-DCCH / SRB1 | Confirms RRC setup completion and carries the NAS Registration Request | 108 |
 
-## 3.2 Packet 104 — RRCSetupRequest
+## Packet Evidence
 
-Observed fields:
+Packet 104 contains `RRCSetupRequest`:
 
 ```text
 UL-CCCH-Message
- └─ c1: rrcSetupRequest
-     └─ rrcSetupRequest
-         ├─ ue-Identity: randomValue
-         └─ establishmentCause: mo-Signalling (3)
+ -> c1: rrcSetupRequest
+     -> rrcSetupRequest
+         -> ue-Identity: randomValue
+         -> establishmentCause: mo-Signalling (3)
 ```
 
-`mo-Signalling` means that the UE initiates the RRC connection for signaling purposes.
-![alt text](image-2.png)
-## 3.3 Packet 105 — RRCSetup
-
-Observed fields include:
+Packet 105 contains `RRCSetup`:
 
 ```text
 DL-CCCH-Message
- └─ c1: rrcSetup
-     ├─ rrc-TransactionIdentifier: 1
-     ├─ radioBearerConfig
-     │   └─ srb-ToAddModList
-     └─ ...
-         └─ srb-Identity: 1
+ -> c1: rrcSetup
+     -> rrc-TransactionIdentifier: 1
+     -> radioBearerConfig
+         -> srb-ToAddModList
+             -> srb-Identity: 1
 ```
 
-The message itself is delivered using SRB0, while its configuration establishes SRB1 for later dedicated signaling.
-![alt text](image-3.png)
-## 3.4 Packet 108 — RRCSetupComplete
-
-Packet 108 shows:
+Packet 108 contains `RRCSetupComplete`:
 
 ```text
 UL-DCCH-Message
- └─ rrcSetupComplete
-     ├─ rrc-TransactionIdentifier: 1
-     └─ dedicatedNAS-Message
-         └─ Registration request (0x41)
-             └─ initial registration (1)
+ -> rrcSetupComplete
+     -> rrc-TransactionIdentifier: 1
+     -> dedicatedNAS-Message
+         -> Registration request (0x41)
 ```
 
-The matching transaction ID (`1`) in Packets 105 and 108 shows that they belong to the same RRC transaction.
-![alt text](image-4.png)
-## 3.5 Answers to Section 6 questions
+The matching transaction ID `1` in Packets 105 and 108 shows that they belong to the same RRC setup transaction.
 
-### Q1. What is the establishment cause in `RRCSetupRequest`?
+## Answers
 
-`mo-Signalling (3)`.
+1. The establishment cause in `RRCSetupRequest` is **`mo-Signalling (3)`**.
+2. `RRCSetupRequest` uses **SRB0 over UL-CCCH** because SRB1 has not yet been established during the initial RRC connection request.
+3. The **gNB** sends `RRCSetup` to the UE.
+4. After the RRC connection is established, **SRB1** is used for dedicated signaling.
+5. `RRCSetupComplete` carries a NAS **Registration Request (`0x41`)**.
+6. At the end of this procedure, the UE is only RRC-connected to the gNB. It is **not yet registered with the 5G Core**, because authentication, NAS security, Registration Accept, and Registration Complete still need to occur.
 
-### Q2. What SRB does `RRCSetupRequest` use? Why?
+## Screenshots
 
-It uses **SRB0** over UL-CCCH because SRB1 has not yet been established during the initial RRC connection request.
+![Packet 104 RRCSetupRequest](images/07_packet104_rrcsetuprequest.png)
 
-### Q3. Which side sends `RRCSetup`?
+![Packet 105 RRCSetup](images/08_packet105_rrcsetup.png)
 
-The **gNB sends `RRCSetup` to the UE** using DL-CCCH / SRB0.
-
-### Q4. Which signaling radio bearer is used after the RRC connection is established?
-
-**SRB1** is used for dedicated signaling after it is configured by `RRCSetup`.
-
-### Q5. Which NAS message is carried inside `RRCSetupComplete`?
-
-NAS **Registration Request (`0x41`)**, with registration type `initial registration (1)`.
-
-### Q6. At the end of this procedure, is the UE already registered with the 5G Core?
-
-No. The UE has completed the **RRC connection establishment with the gNB**, but Packet 108 only starts the 5G Core registration procedure by carrying the initial NAS Registration Request. Further NAS signaling with the AMF is still required.
+![Packet 108 RRCSetupComplete](images/09_packet108_rrcsetupcomplete.png)
 
 ---
 
-# Checkpoint 4 — RRC-to-NGAP/NAS Mapping
+# Checkpoint 4: RRC-to-NGAP/NAS Mapping
 
-## 4.1 Radio-side Registration Request
+## Radio-Side Registration Request
 
 Packet 108 carries the NAS Registration Request inside `RRCSetupComplete`:
 
 ```text
 RRCSetupComplete
- └─ dedicatedNAS-Message
-     └─ NAS 5GS
-         └─ Registration request (0x41)
+ -> dedicatedNAS-Message
+     -> NAS 5GS
+         -> Registration request (0x41)
 ```
-![alt text](image-5.png)
-## 4.2 Core-side Registration Request
+
+## Core-Side Registration Request
 
 Packet 110 carries the same NAS Registration Request inside NGAP `InitialUEMessage`:
 
 ```text
 NGAP InitialUEMessage
- └─ protocolIEs
-     └─ id-NAS-PDU
-         └─ NAS-PDU
-             └─ Registration request (0x41)
+ -> protocolIEs
+     -> id-NAS-PDU
+         -> NAS-PDU
+             -> Registration request (0x41)
 ```
-![alt text](image-6.png)
-![alt text](image-7.png)
-## 4.3 Mapping table
 
-| Stage | Protocol Message | Sender → Receiver | Encapsulated Information |
+## Mapping Table
+
+| Stage | Protocol Message | Sender -> Receiver | Encapsulated Information |
 |---|---|---|---|
-| Radio side | `RRCSetupComplete` (#108) | UE → gNB | `dedicatedNAS-Message`: Registration Request |
-| Core side | NGAP `InitialUEMessage` (#110) | gNB → AMF | `NAS-PDU`: Registration Request |
+| Radio side | `RRCSetupComplete`, Packet 108 | UE -> gNB | `dedicatedNAS-Message`: NAS Registration Request |
+| Core side | NGAP `InitialUEMessage`, Packet 110 | gNB -> AMF | `NAS-PDU`: NAS Registration Request |
 
-This shows how the gNB relays a NAS message: RRC carries NAS between UE and gNB, and NGAP carries the NAS-PDU between gNB and AMF.
+## Registration and Security Frames
 
-## 4.4 Authentication and Security signaling observed
+| Message | Packet | Outer Procedure |
+|---|---:|---|
+| Registration Request | 110 | NGAP `InitialUEMessage` |
+| Authentication Request | 112 | NGAP `DownlinkNASTransport` |
+| Authentication Response | 118 | NGAP `UplinkNASTransport` |
+| Security Mode Command | 120 | NGAP `DownlinkNASTransport` |
+| Security Mode Complete | 128 | NGAP `UplinkNASTransport` |
+| Registration Accept | 131 | NGAP `InitialContextSetupRequest`, NAS-PDU security protected |
+| Registration Complete | 151 | NGAP `UplinkNASTransport`, NAS-PDU security protected |
 
-The NAS/NGAP packet list shows subsequent signaling, including:
+Packets 131 and 151 are present in the expected registration stage, but the inner NAS messages are integrity protected and ciphered in the available Wireshark view. Therefore, their detailed NAS content cannot be directly decoded without NAS keys.
 
-- Packet 112: `DownlinkNASTransport, Authentication request`
-- Packet 118: `UplinkNASTransport, Authentication response`
-- Packet 120: `DownlinkNASTransport, Security mode command`
+## Answers
 
-## 4.5 Registration Accept / Registration Complete verification limitation
-
-Packet 131 (`InitialContextSetupRequest`) contains a NAS-PDU, but Wireshark displays it as:
-
-```text
-Security protected NAS 5GS message
-Security header type: Integrity protected and ciphered (2)
-Encrypted data
-```
-
-Therefore, the inner NAS message type cannot be directly verified from this packet view.
-
-**Status:**
-
-- `Registration Accept`: required by the protocol/lab sequence, but **not directly decoded in the supplied packet evidence**.
-- `Registration Complete`: required by the protocol/lab sequence, but **not directly decoded in the supplied packet evidence**.
-
-## 4.6 Answers to Section 7 questions
-
-### Q1. What is the role of the gNB when it transports NAS messages?
-
-The gNB acts as the access-network relay between the UE and AMF. It receives NAS signaling carried over RRC from the UE and forwards the NAS-PDU to the AMF using NGAP, and performs the reverse operation for downlink NAS signaling.
-
-### Q2. What is the difference between RRC and NAS signaling?
-
-- **RRC:** control signaling between UE and gNB for radio connection and radio resource control.
-- **NAS:** signaling logically between UE and AMF for registration, authentication, mobility, and session management.
-
-### Q3. Is the Registration Request delivered directly from the UE to the AMF?
-
-Not as a direct physical network hop. Logically it is UE–AMF NAS signaling, but the observed transport path is:
+1. The gNB acts as the access-network relay for NAS. It receives NAS carried in RRC from the UE and forwards the NAS-PDU to the AMF using NGAP. It also performs the reverse transport direction for downlink NAS.
+2. **RRC** controls the UE-gNB radio connection and radio resources. **NAS** is logical UE-AMF signaling for registration, authentication, security, mobility, and session management.
+3. The Registration Request is logical UE-to-AMF NAS signaling, but it is not delivered as a direct physical hop. The observed protocol path is:
 
 ```text
-UE --RRC/dedicatedNAS-Message--> gNB --NGAP/NAS-PDU--> AMF
+UE --RRCSetupComplete / dedicatedNAS-Message--> gNB
+gNB --NGAP InitialUEMessage / NAS-PDU--> AMF
 ```
 
-### Q4. Which message confirms that Registration has completed successfully?
+4. **Registration Complete** confirms that registration has completed successfully. In this capture, it is observed as the expected uplink NAS transport stage, but its inner NAS content is security protected/ciphered.
 
-`Registration Complete` is the UE confirmation message. In this capture, its inner NAS message was **not directly verified** because later NAS signaling is security protected/ciphered in the available packet view.
+## Screenshots
+
+![Packet 108 Registration Request](images/10_packet108_registration_request.png)
+
+![Packet 110 NGAP](images/04_packet110_ngap.png)
+
+![Packet 110 Registration Request](images/11_packet110_registration_request.png)
+
+![NAS signaling list](images/12_nas_signaling_list.png)
+
+![Encrypted NAS packet](images/13_packet131_encrypted_nas.png)
 
 ---
 
-# Checkpoint 5 — UE IP Address and User-Plane Traffic
+# Checkpoint 5: UE IP Address and User-Plane Traffic
 
-## 5.1 PDU Session resource setup
+## UE IPv4 Address
 
-Packet 180 is an NGAP `PDUSessionResourceSetupRequest` from AMF to gNB and includes PDU Session ID `1` plus a NAS-PDU. However, the NAS-PDU is encrypted:
+| Field | Observed Value |
+|---|---|
+| UE IPv4 address | `10.0.0.2` |
 
-```text
-Security protected NAS 5GS message
-Security header type: Integrity protected and ciphered (2)
-Encrypted data
-```
-
-Therefore, the NAS `PDU Session Establishment Accept` and its PDU address field cannot be directly read from this screenshot.
-![alt text](image-8.png)
-## 5.2 UE IPv4 address
-
-The UE IPv4 address is independently verified from the GTP-U inner IPv4 header in Packet 490:
+The UE IPv4 address is verified from the inner IPv4 header of the GTP-U packet in Packet 490:
 
 ```text
 Inner IPv4 Source:      10.0.0.2
 Inner IPv4 Destination: 192.168.70.135
 ```
-![alt text](image-9.png)
-**Observed UE IPv4 address: `10.0.0.2`**
 
-> Verification limitation: this address is verified from user-plane traffic, not directly from the encrypted NAS PDU Session Establishment Accept.
+The NAS `PDU Session Establishment Accept` is carried after NAS security is enabled, so the PDU address field is not directly decoded from the NAS message in the available view. The UE address is independently confirmed by user-plane traffic.
 
-## 5.3 ICMP Echo Request / Reply
+## ICMP Echo Request / Reply
 
-The packet list shows **10 ICMP Echo Request/Reply pairs**, with sequence numbers 1 through 10.
-
-Examples:
+The capture contains **10 ICMP Echo Request/Reply pairs**.
 
 | Echo Request | Echo Reply | Sequence |
 |---:|---:|---:|
@@ -347,44 +247,34 @@ Examples:
 | 836 | 840 | 9 |
 | 883 | 886 | 10 |
 
-Packet 490 is the Echo Request:
+Example pair:
 
-```text
-UE 10.0.0.2 → Data Network endpoint 192.168.70.135
-ICMP Type 8: Echo Request
-Response frame: 495
-```
+| Direction | GTP-U Packet | Inner IP | Outer IP | TEID |
+|---|---:|---|---|---|
+| Echo Request, uplink | 490 | `10.0.0.2 -> 192.168.70.135` | `192.168.70.129 -> 192.168.70.134` | `0x00000003` |
+| Echo Reply, downlink | 495 | `192.168.70.135 -> 10.0.0.2` | `192.168.70.134 -> 192.168.70.129` | `0x80417898` |
 
-Packet 495 is the corresponding Echo Reply:
+## Answers
 
-```text
-Data Network endpoint 192.168.70.135 → UE 10.0.0.2
-ICMP Type 0: Echo Reply
-```
+1. The IPv4 address assigned to the UE is **`10.0.0.2`**.
+2. There are **10 ICMP Echo Request/Reply pairs**.
+3. The successful Echo Reply proves that the UE has working bidirectional user-plane IP connectivity through the gNB, UPF, and Data Network. It also confirms that the N3 GTP-U tunnel and forwarding path are working.
 
-## 5.4 Answers to Section 8 questions
+## Screenshots
 
-### Q1. What IPv4 address was assigned to the UE?
+![PDU Session Resource Setup Request](images/14_packet180_pdu_resource_setup.png)
 
-`10.0.0.2`, verified from the inner IPv4 header of Packet 490. The NAS PDU address field itself was not directly decoded because the later NAS-PDU is encrypted.
+![ICMP GTP-U pairs](images/15_icmp_gtpu_pairs.png)
 
-### Q2. How many ICMP Echo Request/Reply pairs are present?
+![Packet 490 ICMP Echo Request](images/06_packet490_gtpu_icmp_request.png)
 
-**10 pairs.**
-
-### Q3. What does the successful Echo Reply prove about the UE connection?
-
-It proves that, for this test, the UE has working bidirectional user-plane IP connectivity to the Data Network endpoint and that the UE's traffic is transported through the GTP-U user-plane path.
+![Packet 495 ICMP Echo Reply](images/16_packet495_icmp_reply.png)
 
 ---
 
-# Checkpoint 6 — Final UE Connection Sequence
+# Checkpoint 6: Final UE Connection Sequence
 
-## 6.1 Wireshark Flow Graph
-
-The Flow Graph was generated after filtering relevant RRC, NGAP, GTP-U, and ICMP traffic. Because OAI RAN analysis packets use loopback addresses, the final logical UE/gNB separation is based on RRC uplink/downlink direction rather than the `127.0.0.1` addresses.
-
-## 6.2 Final sequence diagram
+## Final Sequence Diagram
 
 ```mermaid
 sequenceDiagram
@@ -394,39 +284,36 @@ sequenceDiagram
     participant UPF
     participant DN as Data Network
 
-    Note over UE,AMF: Control Plane — RRC connection and 5G registration
-
-    UE->>gNB: #104 RRCSetupRequest
-    gNB->>UE: #105 RRCSetup
-    UE->>gNB: #108 RRCSetupComplete + Registration Request
+    Note over UE,AMF: Control Plane - RRC connection and 5G registration
+    UE->>gNB: #104 RRCSetupRequest (UL-CCCH / SRB0)
+    gNB->>UE: #105 RRCSetup (DL-CCCH / SRB0)
+    UE->>gNB: #108 RRCSetupComplete + Registration Request (SRB1)
     gNB->>AMF: #110 NGAP InitialUEMessage + Registration Request
 
-    AMF->>gNB: #112 DownlinkNASTransport + Authentication Request
-    gNB->>UE: Authentication Request (RRC/NAS transport observed)
-    UE->>gNB: Authentication Response (RRC/NAS transport observed)
-    gNB->>AMF: #118 UplinkNASTransport + Authentication Response
+    AMF->>gNB: #112 Authentication Request
+    gNB->>UE: Authentication Request via RRC/NAS transport
+    UE->>gNB: Authentication Response via RRC/NAS transport
+    gNB->>AMF: #118 Authentication Response
 
-    AMF->>gNB: #120 DownlinkNASTransport + Security Mode Command
-    Note over UE,AMF: Security-mode signaling continues
-
-    AMF-->>UE: Registration Accept (NAS encrypted, not directly decoded)
-    UE-->>AMF: Registration Complete (NAS encrypted, not directly decoded)
+    AMF->>gNB: #120 Security Mode Command
+    UE->>AMF: #128 Security Mode Complete via gNB
+    AMF-->>UE: #131 Registration Accept via gNB (NAS security protected)
+    UE-->>AMF: #151 Registration Complete via gNB (NAS security protected)
 
     Note over UE,AMF: PDU Session establishment
-    AMF->>gNB: #180 PDUSessionResourceSetupRequest + encrypted NAS-PDU
-    gNB->>AMF: #188 PDUSessionResourceSetupResponse
-    Note over UE,AMF: NAS PDU Session Establishment Accept not directly decoded
+    AMF->>gNB: #180 PDU Session Resource Setup Request
+    gNB->>AMF: #188 PDU Session Resource Setup Response
 
-    Note over UE,DN: User Plane
-    UE->>gNB: #490 ICMP Echo Request (inner IP 10.0.0.2 → 192.168.70.135)
-    gNB->>UPF: GTP-U Echo Request
+    Note over UE,DN: User Plane - GTP-U and ICMP
+    UE->>gNB: #490 ICMP Echo Request (10.0.0.2 -> 192.168.70.135)
+    gNB->>UPF: #490 GTP-U Echo Request
     UPF->>DN: ICMP Echo Request
     DN->>UPF: ICMP Echo Reply
-    UPF->>gNB: GTP-U Echo Reply
+    UPF->>gNB: #495 GTP-U Echo Reply
     gNB->>UE: #495 ICMP Echo Reply
 ```
 
-## 6.3 Control-plane vs. user-plane distinction
+## Control-Plane vs User-Plane Distinction
 
 **Control plane:**
 
@@ -437,8 +324,12 @@ sequenceDiagram
 
 **User plane:**
 
-- UE IP packet carried through GTP-U between gNB and UPF
+- UE IP packets carried through GTP-U between gNB and UPF
 - ICMP Echo Request / Reply used to verify end-to-end user-plane connectivity
+
+## Screenshots
+
+![Final flow graph](images/17_final_flow_graph.png)
 
 ---
 
@@ -446,26 +337,25 @@ sequenceDiagram
 
 | Item | Status | Evidence / Limitation |
 |---|---|---|
-| OAI-5G Wireshark profile | Verified | Profile screenshot |
+| OAI-5G Wireshark profile | Verified | Checkpoint 1 screenshots |
 | NR-RRC decoding | Verified | `nr-rrc` filter |
-| UE/gNB/AMF/UPF/DN endpoint identification | Verified | Packets 110 and 490 |
+| UE/gNB/AMF/UPF/DN identification | Verified | Packets 110 and 490 |
 | RRCSetupRequest | Verified | Packet 104 |
 | RRCSetup | Verified | Packet 105 |
 | RRCSetupComplete | Verified | Packet 108 |
 | NAS Registration Request in RRC | Verified | Packet 108 |
 | NAS Registration Request in NGAP | Verified | Packet 110 |
-| Authentication signaling | Verified | Packets 112 / 118 and RRC/NAS list |
-| Security Mode signaling | Verified as signaling stage | Packet list; later NAS is encrypted |
-| Registration Accept | Not directly decoded | Security-protected/ciphered NAS |
-| Registration Complete | Not directly decoded | Security-protected/ciphered NAS |
-| PDU Session resource setup | Verified | Packets 180 / 188 |
-| NAS PDU Session Establishment Accept | Not directly decoded | Encrypted NAS-PDU |
+| Authentication signaling | Verified | Packets 112 and 118 |
+| Security Mode signaling | Verified | Packets 120 and 128 |
+| Registration Accept | Observed as expected stage | Packet 131; inner NAS security protected |
+| Registration Complete | Observed as expected stage | Packet 151; inner NAS security protected |
+| PDU Session resource setup | Verified | Packets 180 and 188 |
 | UE IPv4 address `10.0.0.2` | Verified from user plane | Packet 490 inner IPv4 |
-| 10 ICMP request/reply pairs | Verified | Sequences 1–10 |
-| GTP-U user-plane connectivity | Verified | Packets 490 / 495 and related pairs |
+| 10 ICMP request/reply pairs | Verified | Sequences 1-10 |
+| GTP-U user-plane connectivity | Verified | Packets 490 and 495 |
 
 ---
 
 # Conclusion
 
-The capture demonstrates the complete observable path from RRC connection establishment to working user-plane connectivity. Packets 104, 105, and 108 establish the UE–gNB RRC connection. Packet 108 carries the UE's NAS Registration Request, and Packet 110 shows the gNB forwarding that NAS message to the AMF through NGAP. Authentication and security signaling are subsequently observed. Later NAS messages are security protected and ciphered, so several inner NAS message types cannot be directly verified from the available packet view. Finally, GTP-U and ICMP traffic verify that the UE uses IPv4 address `10.0.0.2` and successfully exchanges user-plane traffic with the Data Network endpoint.
+The capture shows the UE establishing an RRC connection with the gNB through Packets 104, 105, and 108. Packet 108 carries the NAS Registration Request inside RRC, and Packet 110 shows the gNB forwarding the same NAS message to the AMF through NGAP. Authentication and security signaling then occur, followed by PDU session resource setup. Finally, GTP-U and ICMP traffic confirm that the UE uses IPv4 address `10.0.0.2` and successfully exchanges user-plane traffic with the Data Network endpoint.
